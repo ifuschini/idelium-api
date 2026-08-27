@@ -7,6 +7,7 @@ use App\Models\Costumer;
 use App\Models\ServiceAccount;
 use App\Services\ServiceAccountService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -95,6 +96,7 @@ class ServiceAccountCredentialTest extends TestCase
 
     public function test_legacy_customer_api_key_still_works_during_migration(): void
     {
+        Carbon::setTestNow('2026-08-07 09:30:00');
         $request = request();
         $request->headers->set('Idelium-Key', $this->customer->apiKey);
 
@@ -109,5 +111,24 @@ class ServiceAccountCredentialTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame($this->customer->id, $response->getData(true)['customerId']);
+        $this->assertSame(
+            '2026-08-07 09:30:00',
+            $this->customer->fresh()->apiKeyLastUsedAt->format('Y-m-d H:i:s')
+        );
+    }
+
+    public function test_expired_legacy_customer_api_key_is_rejected(): void
+    {
+        $this->customer->forceFill(['apiKeyExpiresAt' => now()->subMinute()])->save();
+        $request = request();
+        $request->headers->set('Idelium-Key', $this->customer->apiKey);
+
+        $response = app(AuthenticateIdeliumKey::class)->handle(
+            $request,
+            fn () => response()->json(['unexpected' => true])
+        );
+
+        $this->assertSame(401, $response->getStatusCode());
+        $this->assertNull($this->customer->fresh()->apiKeyLastUsedAt);
     }
 }

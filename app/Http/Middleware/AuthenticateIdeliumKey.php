@@ -7,6 +7,7 @@ use App\Services\ServiceAccountService;
 use App\Support\Tenancy\TenantContext;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Symfony\Component\HttpFoundation\Response;
 
 class AuthenticateIdeliumKey
@@ -32,9 +33,21 @@ class AuthenticateIdeliumKey
         }
 
         if ($customer === null) {
-            $customer = is_string($apiKey) && $apiKey !== ''
-                ? Costumer::where('apiKey', $apiKey)->first()
-                : null;
+            $customer = null;
+            if (is_string($apiKey) && $apiKey !== '') {
+                $query = Costumer::where('apiKey', $apiKey);
+                if (Schema::hasColumn('costumers', 'apiKeyExpiresAt')) {
+                    $query->where(function ($query) {
+                        $query->whereNull('apiKeyExpiresAt')
+                            ->orWhere('apiKeyExpiresAt', '>', now());
+                    });
+                }
+                $customer = $query->first();
+            }
+
+            if ($customer !== null && Schema::hasColumn('costumers', 'apiKeyLastUsedAt')) {
+                $customer->forceFill(['apiKeyLastUsedAt' => now()])->saveQuietly();
+            }
         }
 
         if ($customer === null) {

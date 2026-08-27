@@ -2,13 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\AuthenticateIdeliumKey;
 use App\Models\AuditEvent;
 use App\Models\Costumer;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ServiceAccountService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class ServiceAccountManagementTest extends TestCase
@@ -111,6 +115,98 @@ class ServiceAccountManagementTest extends TestCase
             'targetType' => 'service_account',
             'targetId' => (string) $serviceAccount->id,
         ]);
+    }
+
+    public function test_admin_receives_legacy_key_creation_and_last_use_metadata(): void
+    {
+        $admin = $this->createUser(2, $this->customer);
+        $request = Request::create('/api/ideliumcl/testcycle/1', 'GET');
+        $request->headers->set('Idelium-Key', $this->customer->apiKey);
+
+        app(AuthenticateIdeliumKey::class)->handle(
+            $request,
+            fn () => response()->json(['ok' => true])
+        );
+
+        $response = $this->actingAs($admin)
+            ->withHeader('Origin', 'https://localhost')
+            ->getJson('/api/admin/apikey')
+            ->assertOk()
+            ->assertJsonPath('credentials.0.id', 'legacy-key')
+            ->assertJsonPath('credentials.0.status', 'legacy')
+            ->assertJsonPath('credentials.0.tenantId', (string) $this->customer->id);
+
+        $this->assertNotNull($response->json('credentials.0.createdAt'));
+        $this->assertNotNull($response->json('credentials.0.lastUsedAt'));
+        $this->assertSame(
+            substr($this->customer->apiKey, 0, 12),
+            $response->json('credentials.0.keyPrefix')
+        );
+        $this->assertStringNotContainsString(
+            $this->customer->apiKey,
+            json_encode($response->json('credentials'), JSON_THROW_ON_ERROR)
+        );
+    }
+
+    public function test_admin_rotates_legacy_key_with_an_approved_expiration(): void
+    {
+        $admin = $this->createUser(2, $this->customer);
+        $originalKey = $this->customer->apiKey;
+
+        $response = $this->actingAs($admin)
+            ->withHeader('Origin', 'https://localhost')
+            ->putJson('/api/admin/apikey', ['expiresInDays' => 90])
+            ->assertOk()
+            ->assertJsonPath('credentials.0.id', 'legacy-key')
+            ->assertJsonPath('credentials.0.lastUsedAt', null);
+
+        $rotated = $this->customer->fresh();
+        $this->assertNotSame($originalKey, $rotated->apiKey);
+        $this->assertNotNull($rotated->apiKeyCreatedAt);
+        $this->assertNotNull($rotated->apiKeyExpiresAt);
+        $this->assertSame(
+            $rotated->apiKeyExpiresAt->toISOString(),
+            $response->json('credentials.0.expiresAt')
+        );
+    }
+
+    public function test_admin_cannot_use_an_unapproved_legacy_key_expiration(): void
+    {
+        $admin = $this->createUser(2, $this->customer);
+
+        $this->actingAs($admin)
+            ->withHeader('Origin', 'https://localhost')
+            ->putJson('/api/admin/apikey', ['expiresInDays' => 7])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('expiresInDays');
+    }
+
+    public function test_admin_receives_actionable_error_when_legacy_key_expiration_schema_is_missing(): void
+    {
+        $admin = $this->createUser(2, $this->customer);
+        Schema::table('costumers', function (Blueprint $table): void {
+            $table->dropColumn(['apiKeyCreatedAt', 'apiKeyExpiresAt', 'apiKeyLastUsedAt']);
+        });
+
+        $keyRequest = Request::create('/api/ideliumcl/testcycle/1', 'GET');
+        $keyRequest->headers->set('Idelium-Key', $this->customer->apiKey);
+        $keyResponse = app(AuthenticateIdeliumKey::class)->handle(
+            $keyRequest,
+            fn () => response()->json(['ok' => true])
+        );
+        $this->assertSame(200, $keyResponse->getStatusCode());
+
+        $this->actingAs($admin)
+            ->withHeader('Origin', 'https://localhost')
+            ->getJson('/api/admin/apikey')
+            ->assertOk()
+            ->assertJsonPath('credentials.0.createdAt', $this->customer->created_at->toISOString());
+
+        $this->actingAs($admin)
+            ->withHeader('Origin', 'https://localhost')
+            ->putJson('/api/admin/apikey', ['expiresInDays' => 90])
+            ->assertConflict()
+            ->assertJsonPath('error.code', 'LEGACY_API_KEY_SCHEMA_MISSING');
     }
 
     private function createCustomer(string $prefix): Costumer
