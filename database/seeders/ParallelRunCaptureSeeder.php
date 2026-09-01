@@ -15,7 +15,7 @@ class ParallelRunCaptureSeeder extends Seeder
 
         DB::table('costumers')->updateOrInsert(
             ['id' => 9001],
-            ['costumer' => 'fixture-customer-smoke', 'description' => 'Disposable capture tenant', 'apiKey' => 'fixture-cli-key-9001', 'apiKeyExpiresAt' => $now->copy()->addDay(), 'updated_at' => $now, 'created_at' => $now]
+            ['costumer' => 'fixture-customer-smoke', 'description' => 'Disposable capture tenant', 'logo' => json_encode([]), 'licenseExpiration' => $now->copy()->addYear(), 'apiKey' => 'fixture-cli-key-9001', 'apiKeyExpiresAt' => $now->copy()->addDay(), 'updated_at' => $now, 'created_at' => $now]
         );
         DB::table('users')->updateOrInsert(
             ['id' => 9001],
