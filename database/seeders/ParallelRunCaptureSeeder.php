@@ -25,7 +25,7 @@ class ParallelRunCaptureSeeder extends Seeder
         DB::table('test_cycles')->updateOrInsert(['id' => 9001], ['name' => 'fixture-cycle-smoke', 'description' => 'Disposable capture cycle', 'config' => json_encode(['tests' => [9001]]), 'idProject' => 9001, 'idCostumer' => 9001, 'updated_at' => $now, 'created_at' => $now]);
         DB::table('parallel_run_schedules')->updateOrInsert(
             ['id' => 9001],
-            ['idProject' => 9001, 'testCycleId' => 9001, 'idCostumer' => 9001, 'idempotencyKey' => 'fixture-parallel-run-smoke', 'status' => 'queued', 'requestedConcurrency' => 1, 'workerStates' => json_encode(['fixture-agent-smoke' => ['status' => 'queued']]), 'resultSummary' => json_encode([]), 'metadata' => json_encode(['fixture' => 'fixture-parallel-run-smoke']), 'scheduledAt' => $now, 'updated_at' => $now, 'created_at' => $now]
+            ['idProject' => 9001, 'testCycleId' => 9001, 'idCostumer' => 9001, 'idempotencyKey' => 'fixture-parallel-run-smoke', 'status' => 'queued', 'requestedConcurrency' => 1, 'workerStates' => json_encode([]), 'resultSummary' => json_encode([]), 'metadata' => json_encode(['fixture' => 'fixture-parallel-run-smoke']), 'scheduledAt' => $now, 'updated_at' => $now, 'created_at' => $now]
         );
         DB::table('agent_registrations')->updateOrInsert(
             ['idCostumer' => 9001, 'agentId' => 'fixture-agent-smoke'],
