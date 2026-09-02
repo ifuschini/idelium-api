@@ -29,7 +29,7 @@ class ParallelRunCaptureSeeder extends Seeder
         );
         DB::table('agent_registrations')->updateOrInsert(
             ['idCostumer' => 9001, 'agentId' => 'fixture-agent-smoke'],
-            ['status' => 'active', 'version' => 'fixture', 'capabilities' => json_encode(['selenium']), 'maxConcurrency' => 1, 'health' => 'healthy', 'updated_at' => $now, 'created_at' => $now]
+            ['status' => 'approved', 'version' => 'fixture', 'capabilities' => json_encode(['selenium']), 'maxConcurrency' => 1, 'health' => 'healthy', 'updated_at' => $now, 'created_at' => $now]
         );
     }
 }
