@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UpdateLegacyApiKeyRequest;
 use App\Library\ApiKey;
 use App\Models\Costumer;
 use App\Services\CapabilityService;
 use App\Support\EnterpriseGridResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 
 class CostumerController extends Controller
 {
@@ -58,6 +60,7 @@ class CostumerController extends Controller
         $costumer->description = strtoupper($request->input('description'));
         $costumer->licenseExpiration = date('Y-m-d H:i:s', strtotime('+365 day', $startDate));
         $costumer->apiKey = $apiKey->generateApiSignature();
+        $costumer->apiKeyCreatedAt = now();
         $costumer->logo = '[]';
         $costumer->save();
 
@@ -75,26 +78,83 @@ class CostumerController extends Controller
     {
         $this->capabilities->require($request->user(), 'api_keys.manage');
 
-        $costumers = Costumer::select('apiKey')
+        $usageColumns = $this->legacyApiKeyUsageColumns();
+        $costumer = Costumer::query()
+            ->select(array_values(array_unique(array_merge([
+                'id',
+                'apiKey',
+                'created_at',
+            ], $usageColumns))))
             ->where('id', Auth::user()->idCostumer)
-            ->get();
-        if (count($costumers) == 1) {
-            return $costumers[0];
+            ->first();
+        if ($costumer !== null) {
+            return response()->json([
+                'apiKey' => $costumer->apiKey,
+                'credentials' => [[
+                    'actor' => 'legacy',
+                    'createdAt' => optional($costumer->apiKeyCreatedAt ?? $costumer->created_at)->toISOString(),
+                    'expiresAt' => optional($costumer->apiKeyExpiresAt)->toISOString(),
+                    'id' => 'legacy-key',
+                    'keyPrefix' => substr($costumer->apiKey, 0, 12),
+                    'lastUsedAt' => optional($costumer->apiKeyLastUsedAt)->toISOString(),
+                    'legacy' => true,
+                    'name' => 'Legacy API key',
+                    'scopes' => ['legacy'],
+                    'status' => 'legacy',
+                    'tenantId' => (string) $costumer->id,
+                ]],
+            ]);
         }
 
         return Auth::user()->idCostumer;
     }
 
-    public function updateKey(Request $request)
+    public function updateKey(UpdateLegacyApiKeyRequest $request)
     {
         $this->capabilities->require($request->user(), 'api_keys.manage');
+
+        $usageColumns = $this->legacyApiKeyUsageColumns();
+        if ($request->validated('expiresInDays') !== null && ! in_array('apiKeyExpiresAt', $usageColumns, true)) {
+            return response()->json([
+                'error' => [
+                    'code' => 'LEGACY_API_KEY_SCHEMA_MISSING',
+                    'message' => 'Legacy API key expiration requires the latest database migration. Run the Idelium API migrations before replacing the key with an expiration policy.',
+                ],
+            ], 409);
+        }
 
         $apiKey = new ApiKey;
         $costumer = Costumer::findorFail(Auth::user()->idCostumer);
         $costumer->apiKey = $apiKey->generateApiSignature();
+        if (in_array('apiKeyCreatedAt', $usageColumns, true)) {
+            $costumer->apiKeyCreatedAt = now();
+        }
+        if (in_array('apiKeyExpiresAt', $usageColumns, true)) {
+            $costumer->apiKeyExpiresAt = $request->validated('expiresInDays') === null
+                ? null
+                : now()->addDays($request->integer('expiresInDays'));
+        }
+        if (in_array('apiKeyLastUsedAt', $usageColumns, true)) {
+            $costumer->apiKeyLastUsedAt = null;
+        }
         $costumer->save();
 
-        return ['apiKey' => $costumer->apiKey];
+        return response()->json([
+            'apiKey' => $costumer->apiKey,
+            'credentials' => [[
+                'actor' => 'legacy',
+                'createdAt' => optional($costumer->apiKeyCreatedAt ?? $costumer->created_at)->toISOString(),
+                'expiresAt' => optional($costumer->apiKeyExpiresAt)->toISOString(),
+                'id' => 'legacy-key',
+                'keyPrefix' => substr($costumer->apiKey, 0, 12),
+                'lastUsedAt' => null,
+                'legacy' => true,
+                'name' => 'Legacy API key',
+                'scopes' => ['legacy'],
+                'status' => 'legacy',
+                'tenantId' => (string) $costumer->id,
+            ]],
+        ]);
     }
 
     public function update(Request $request, $id)
@@ -122,5 +182,13 @@ class CostumerController extends Controller
         if ($costumer->delete()) {
             return $this->index($request);
         }
+    }
+
+    private function legacyApiKeyUsageColumns(): array
+    {
+        return array_values(array_filter(
+            ['apiKeyCreatedAt', 'apiKeyExpiresAt', 'apiKeyLastUsedAt'],
+            fn (string $column): bool => Schema::hasColumn('costumers', $column),
+        ));
     }
 }

@@ -49,8 +49,10 @@ use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Controllers\CsrfCookieController;
 
 Route::get('sanctum/csrf-cookie', [CsrfCookieController::class, 'show'])
+    ->middleware('web')
     ->name('csrf.show');
 Route::post('login', [LoginController::class, 'login'])
+    ->middleware('web')
     ->name('login');
 Route::post('oidc/token-exchange', [OidcWorkloadIdentityController::class, 'exchange'])
     ->name('oidc.token-exchange');
@@ -73,7 +75,7 @@ Route::prefix('ideliumrunner')->group(function () {
         ->name('runner.updateWorker');
 });
 
-Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
+Route::middleware(['web', 'auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('me/capabilities', [CapabilityController::class, 'me'])
         ->name('capabilities.me');
     Route::post('logout', [LoginController::class, 'logout'])

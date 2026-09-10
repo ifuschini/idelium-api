@@ -8,4 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 class Costumer extends Model
 {
     use HasFactory;
+
+    protected $casts = [
+        'apiKeyCreatedAt' => 'datetime',
+        'apiKeyExpiresAt' => 'datetime',
+        'apiKeyLastUsedAt' => 'datetime',
+    ];
 }
